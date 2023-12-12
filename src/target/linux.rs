@@ -97,7 +97,7 @@ fn make_netifa_name(netifa: &libc::ifaddrs) -> Result<String> {
 fn make_ipv4_broadcast_addr(netifa: &libc::ifaddrs) -> Result<Option<Ipv4Addr>> {
     #[cfg(not(target_os = "freebsd"))]
     {
-        use lic::sockaddr_ll;
+        use libc::sockaddr_ll;
         let ifa_dstaddr = netifa.ifa_ifu;
 
         if ifa_dstaddr.is_null() {
