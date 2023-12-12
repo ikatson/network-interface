@@ -148,6 +148,7 @@ fn make_ipv6_broadcast_addr(netifa: &libc::ifaddrs) -> Result<Option<Ipv6Addr>> 
 fn make_mac_addrs(netifa: &libc::ifaddrs) -> String {
     #[cfg(not(target_os = "freebsd"))]
     {
+        use libc::sockaddr_ll;
         let netifa_addr = netifa.ifa_addr;
         let socket_addr = netifa_addr as *mut sockaddr_ll;
         let mac_array = unsafe { (*socket_addr).sll_addr };
