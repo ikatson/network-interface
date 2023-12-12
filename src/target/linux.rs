@@ -3,8 +3,16 @@ use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::slice::from_raw_parts;
 
-use libc::{
-    sockaddr_in, sockaddr_in6, strlen, AF_INET, AF_INET6, if_nametoindex, sockaddr_ll, AF_PACKET,
+use libc::{sockaddr_in, sockaddr_in6, strlen, AF_INET, AF_INET6, if_nametoindex};
+const AF_PACKET: i32 = {
+    #[cfg(not(target_os = "freebsd"))]
+    {
+        libc::AF_PACKET
+    }
+    #[cfg(target_os = "freebsd")]
+    {
+        -1
+    }
 };
 
 use crate::target::getifaddrs;
@@ -87,17 +95,26 @@ fn make_netifa_name(netifa: &libc::ifaddrs) -> Result<String> {
 ///
 /// https://man7.org/linux/man-pages/man3/getifaddrs.3.html
 fn make_ipv4_broadcast_addr(netifa: &libc::ifaddrs) -> Result<Option<Ipv4Addr>> {
-    let ifa_dstaddr = netifa.ifa_ifu;
+    #[cfg(not(target_os = "freebsd"))]
+    {
+        use lic::sockaddr_ll;
+        let ifa_dstaddr = netifa.ifa_ifu;
 
-    if ifa_dstaddr.is_null() {
-        return Ok(None);
+        if ifa_dstaddr.is_null() {
+            return Ok(None);
+        }
+
+        let socket_addr = ifa_dstaddr as *mut sockaddr_in;
+        let internet_address = unsafe { (*socket_addr).sin_addr };
+        let addr = ipv4_from_in_addr(&internet_address)?;
+
+        Ok(Some(addr))
     }
 
-    let socket_addr = ifa_dstaddr as *mut sockaddr_in;
-    let internet_address = unsafe { (*socket_addr).sin_addr };
-    let addr = ipv4_from_in_addr(&internet_address)?;
-
-    Ok(Some(addr))
+    #[cfg(target_os = "freebsd")]
+    {
+        Ok(None)
+    }
 }
 
 /// Retrieves the broadcast address for the network interface provided of the
@@ -107,32 +124,47 @@ fn make_ipv4_broadcast_addr(netifa: &libc::ifaddrs) -> Result<Option<Ipv4Addr>> 
 ///
 /// https://man7.org/linux/man-pages/man3/getifaddrs.3.html
 fn make_ipv6_broadcast_addr(netifa: &libc::ifaddrs) -> Result<Option<Ipv6Addr>> {
-    let ifa_dstaddr = netifa.ifa_ifu;
+    #[cfg(not(target_os = "freebsd"))]
+    {
+        let ifa_dstaddr = netifa.ifa_ifu;
 
-    if ifa_dstaddr.is_null() {
-        return Ok(None);
+        if ifa_dstaddr.is_null() {
+            return Ok(None);
+        }
+
+        let socket_addr = ifa_dstaddr as *mut sockaddr_in6;
+        let internet_address = unsafe { (*socket_addr).sin6_addr };
+        let addr = ipv6_from_in6_addr(&internet_address)?;
+
+        Ok(Some(addr))
     }
 
-    let socket_addr = ifa_dstaddr as *mut sockaddr_in6;
-    let internet_address = unsafe { (*socket_addr).sin6_addr };
-    let addr = ipv6_from_in6_addr(&internet_address)?;
-
-    Ok(Some(addr))
+    #[cfg(target_os = "freebsd")]
+    {
+        Ok(None)
+    }
 }
 
 fn make_mac_addrs(netifa: &libc::ifaddrs) -> String {
-    let netifa_addr = netifa.ifa_addr;
-    let socket_addr = netifa_addr as *mut sockaddr_ll;
-    let mac_array = unsafe { (*socket_addr).sll_addr };
-    let addr_len = unsafe { (*socket_addr).sll_halen };
-    let real_addr_len = std::cmp::min(addr_len as usize, mac_array.len());
-    let mac_slice = unsafe { std::slice::from_raw_parts(mac_array.as_ptr(), real_addr_len) };
+    #[cfg(not(target_os = "freebsd"))]
+    {
+        let netifa_addr = netifa.ifa_addr;
+        let socket_addr = netifa_addr as *mut sockaddr_ll;
+        let mac_array = unsafe { (*socket_addr).sll_addr };
+        let addr_len = unsafe { (*socket_addr).sll_halen };
+        let real_addr_len = std::cmp::min(addr_len as usize, mac_array.len());
+        let mac_slice = unsafe { std::slice::from_raw_parts(mac_array.as_ptr(), real_addr_len) };
 
-    mac_slice
-        .iter()
-        .map(|x| format!("{:02x}", x))
-        .collect::<Vec<_>>()
-        .join(":")
+        mac_slice
+            .iter()
+            .map(|x| format!("{:02x}", x))
+            .collect::<Vec<_>>()
+            .join(":")
+    }
+    #[cfg(target_os = "freebsd")]
+    {
+        String::new()
+    }
 }
 
 /// Retreives the name for the the network interface provided
